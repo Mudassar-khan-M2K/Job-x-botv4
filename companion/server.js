@@ -22,11 +22,13 @@ app.use(express.urlencoded({ extended: true }));
 
 const TEMP = path.join(__dirname, '../temp_session');
 
-app.get('/', (req, res) => res.send('Server running...'));
+// ✅ KEEP HTML ROUTE (your frontend depends on it)
+app.get('/', (req, res) => res.send(getHTML()));
 
-// ─────────────────────────────────────────────────────────
-// 📱 PAIRING CODE (FIXED)
-// ─────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────
+// 📱 PAIRING CODE (FIXED PROPERLY)
+// ─────────────────────────────────────────
 app.post('/pair', async (req, res) => {
   let { phone } = req.body;
   if (!phone) return res.json({ error: 'Phone number required' });
@@ -37,6 +39,7 @@ app.post('/pair', async (req, res) => {
   }
 
   try {
+    // clean old session
     if (fs.existsSync(TEMP)) fs.rmSync(TEMP, { recursive: true, force: true });
     fs.mkdirSync(TEMP, { recursive: true });
 
@@ -58,11 +61,11 @@ app.post('/pair', async (req, res) => {
     let codeSent = false;
 
     sock.ev.on('connection.update', async (update) => {
-      console.log('Connection update:', update);
+      console.log('Connection:', update);
 
       const { connection, lastDisconnect } = update;
 
-      // ✅ CORRECT trigger for pairing
+      // ✅ correct trigger
       if (connection === 'connecting' && !codeSent) {
         codeSent = true;
 
@@ -70,41 +73,127 @@ app.post('/pair', async (req, res) => {
           const code = await sock.requestPairingCode(phone);
           const formatted = code?.match(/.{1,4}/g)?.join('-') || code;
 
-          console.log(`✅ Pairing code: ${formatted}`);
           io.emit('pairing_code', { code: formatted, phone });
-
         } catch (err) {
-          console.error('Pairing error:', err.message);
           io.emit('error', { message: err.message });
         }
       }
 
-      // ✅ SUCCESS
       if (connection === 'open') {
-        console.log('✅ CONNECTED');
-
         io.emit('status', { message: '✅ Connected! Generating session...' });
 
         await new Promise(r => setTimeout(r, 3000));
 
         const session = await exportSession();
-        if (session) {
-          io.emit('session_ready', { session });
-        }
+        if (session) io.emit('session_ready', { session });
 
         setTimeout(() => {
           try { sock.end(); } catch (_) {}
         }, 3000);
       }
 
-      // ❌ DISCONNECT HANDLING
       if (connection === 'close') {
         const code = lastDisconnect?.error?.output?.statusCode;
-
-        console.log('❌ Disconnected:', code);
+        console.log('Disconnected:', code);
 
         if (code !== DisconnectReason.loggedOut) {
           io.emit('error', { message: 'Connection closed. Try again.' });
+        }
+      }
+    });
+
+    res.json({ success: true });
+
+  } catch (err) {
+    console.error(err);
+    res.json({ error: err.message });
+  }
+});
+
+
+// ─────────────────────────────────────────
+// 📷 QR FLOW (kept stable)
+// ─────────────────────────────────────────
+app.get('/qr-start', async (req, res) => {
+  try {
+    if (fs.existsSync(TEMP)) fs.rmSync(TEMP, { recursive: true, force: true });
+    fs.mkdirSync(TEMP, { recursive: true });
+
+    const { state, saveCreds } = await useMultiFileAuthState(TEMP);
+    const { version } = await fetchLatestBaileysVersion();
+
+    const sock = makeWASocket({
+      version,
+      auth: state,
+      printQRInTerminal: false,
+      logger: pino({ level: 'silent' }),
+      browser: ['Ubuntu', 'Chrome', '120.0.0'],
+      markOnlineOnConnect: false,
+      syncFullHistory: false
+    });
+
+    sock.ev.on('creds.update', saveCreds);
+
+    sock.ev.on('connection.update', async (update) => {
+      const { connection, qr } = update;
+
+      if (qr) {
+        const qrImage = await QRCode.toDataURL(qr);
+        io.emit('qr', { image: qrImage });
+      }
+
+      if (connection === 'open') {
+        io.emit('status', { message: '✅ Connected! Generating session...' });
+
+        await new Promise(r => setTimeout(r, 3000));
+
+        const session = await exportSession();
+        if (session) io.emit('session_ready', { session });
+
+        setTimeout(() => {
+          try { sock.end(); } catch (_) {}
+        }, 3000);
+      }
+    });
+
+    res.json({ success: true });
+
+  } catch (err) {
+    res.json({ error: err.message });
+  }
+});
+
+
+// ─────────────────────────────────────────
+// 🔐 EXPORT SESSION
+// ─────────────────────────────────────────
+async function exportSession() {
+  try {
+    const credsPath = path.join(TEMP, 'creds.json');
+    if (!fs.existsSync(credsPath)) return null;
+
+    const creds = fs.readFileSync(credsPath, 'utf-8');
+    return `Gifted~${Buffer.from(creds).toString('base64')}`;
+  } catch (err) {
+    console.error(err);
+    return null;
+  }
+}
+
+
+// ─────────────────────────────────────────
+// 🚀 START SERVER
+// ─────────────────────────────────────────
+const PORT = process.env.PORT || 3001;
+server.listen(PORT, () => console.log(`🌐 Server running on ${PORT}`));
+
+
+// ─────────────────────────────────────────
+// 🌐 HTML (REQUIRED — DO NOT REMOVE)
+// ─────────────────────────────────────────
+function getHTML() {
+  return `<h2 style="text-align:center;margin-top:40px;">✅ Companion Server Running</h2>`;
+      }          io.emit('error', { message: 'Connection closed. Try again.' });
         }
       }
     });
