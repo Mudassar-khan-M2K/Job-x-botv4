@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const { getDashboardStats } = require('../database/db');
+const { getDashboardStats, initDb } = require('../database/db');
 const { isConnected } = require('../config/state');
 const config = require('../config/config');
 const logger = require('../config/logger');
@@ -10,6 +10,12 @@ const logger = require('../config/logger');
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
+
+// Init DB then start server
+initDb().then(() => {
+  const PORT = config.dashboard.port;
+  server.listen(PORT, () => logger.info(`📊 Dashboard running on port ${PORT}`));
+});
 
 app.get('/', (req, res) => {
   res.send(getDashboardHTML());
@@ -43,7 +49,6 @@ setInterval(() => {
 }, 10000);
 
 const PORT = config.dashboard.port;
-server.listen(PORT, () => logger.info(`📊 Dashboard running on port ${PORT}`));
 
 function getDashboardHTML() {
   return `<!DOCTYPE html>
