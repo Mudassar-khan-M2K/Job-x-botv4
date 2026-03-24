@@ -13,7 +13,7 @@ const fs = require('fs');
 const pino = require('pino');
 const config = require('../config/config');
 const logger = require('../config/logger');
-const state = require('../config/state');
+const appState = require('../config/state');
 const { sendAlertToOwners } = require('./alerts');
 const { setStat } = require('../database/db');
 
@@ -109,7 +109,7 @@ async function connectToWhatsApp(onMessage) {
     const { connection, lastDisconnect } = update;
 
     if (connection === 'open') {
-      state.setConnected(true);
+      appState.setConnected(true);
       reconnectAttempts = 0;
       logger.info('✅ WhatsApp Connected Successfully!');
       setStat('start_time', new Date().toISOString());
@@ -117,7 +117,7 @@ async function connectToWhatsApp(onMessage) {
     }
 
     if (connection === 'close') {
-      state.setConnected(false);
+      appState.setConnected(false);
       const statusCode = lastDisconnect?.error instanceof Boom
         ? lastDisconnect.error.output?.statusCode
         : 500;
@@ -161,6 +161,6 @@ async function connectToWhatsApp(onMessage) {
 }
 
 function getSocket() { return sock; }
-function getIsConnected() { return state.isConnected(); }
+function getIsConnected() { return appState.isConnected(); }
 
 module.exports = { connectToWhatsApp, getSocket, getIsConnected };
