@@ -1,7 +1,7 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 const crypto = require('crypto');
-const config = require('../../config/config');
+const config = require('../config/config');
 
 const axiosInstance = axios.create({
   timeout: config.scrapers.timeout,
