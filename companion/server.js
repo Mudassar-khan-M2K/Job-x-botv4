@@ -8,7 +8,6 @@ const {
   DisconnectReason,
   fetchLatestBaileysVersion
 } = require('@whiskeysockets/baileys');
-const { Boom } = require('@hapi/boom');
 const QRCode = require('qrcode');
 const fs = require('fs');
 const path = require('path');
@@ -21,90 +20,176 @@ const io = new Server(server);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-const SESSION_TEMP = path.join(__dirname, '../temp_session');
+const TEMP = path.join(__dirname, '../temp_session');
 
-let sock = null;
-let currentQR = null;
+app.get('/', (req, res) => res.send('Server running...'));
 
-app.get('/', (req, res) => res.send(getHTML()));
-
-// ─── Pairing Code Route ─────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────
+// 📱 PAIRING CODE (FIXED)
+// ─────────────────────────────────────────────────────────
 app.post('/pair', async (req, res) => {
-  const { phone } = req.body;
+  let { phone } = req.body;
   if (!phone) return res.json({ error: 'Phone number required' });
 
+  phone = phone.replace(/[^0-9]/g, '');
+  if (!phone.startsWith('92') && phone.startsWith('0')) {
+    phone = '92' + phone.slice(1);
+  }
+
   try {
-    // Clean phone number
-    const cleanPhone = phone.replace(/[^0-9]/g, '');
-    const sessionId = await generatePairingSession(cleanPhone, res);
-    // Response is sent inside generatePairingSession
+    if (fs.existsSync(TEMP)) fs.rmSync(TEMP, { recursive: true, force: true });
+    fs.mkdirSync(TEMP, { recursive: true });
+
+    const { state, saveCreds } = await useMultiFileAuthState(TEMP);
+    const { version } = await fetchLatestBaileysVersion();
+
+    const sock = makeWASocket({
+      version,
+      auth: state,
+      printQRInTerminal: false,
+      logger: pino({ level: 'silent' }),
+      browser: ['Ubuntu', 'Chrome', '120.0.0'],
+      markOnlineOnConnect: false,
+      syncFullHistory: false
+    });
+
+    sock.ev.on('creds.update', saveCreds);
+
+    let codeSent = false;
+
+    sock.ev.on('connection.update', async (update) => {
+      console.log('Connection update:', update);
+
+      const { connection, lastDisconnect } = update;
+
+      // ✅ CORRECT trigger for pairing
+      if (connection === 'connecting' && !codeSent) {
+        codeSent = true;
+
+        try {
+          const code = await sock.requestPairingCode(phone);
+          const formatted = code?.match(/.{1,4}/g)?.join('-') || code;
+
+          console.log(`✅ Pairing code: ${formatted}`);
+          io.emit('pairing_code', { code: formatted, phone });
+
+        } catch (err) {
+          console.error('Pairing error:', err.message);
+          io.emit('error', { message: err.message });
+        }
+      }
+
+      // ✅ SUCCESS
+      if (connection === 'open') {
+        console.log('✅ CONNECTED');
+
+        io.emit('status', { message: '✅ Connected! Generating session...' });
+
+        await new Promise(r => setTimeout(r, 3000));
+
+        const session = await exportSession();
+        if (session) {
+          io.emit('session_ready', { session });
+        }
+
+        setTimeout(() => {
+          try { sock.end(); } catch (_) {}
+        }, 3000);
+      }
+
+      // ❌ DISCONNECT HANDLING
+      if (connection === 'close') {
+        const code = lastDisconnect?.error?.output?.statusCode;
+
+        console.log('❌ Disconnected:', code);
+
+        if (code !== DisconnectReason.loggedOut) {
+          io.emit('error', { message: 'Connection closed. Try again.' });
+        }
+      }
+    });
+
+    res.json({ success: true });
+
+  } catch (err) {
+    console.error(err);
+    res.json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────
+// 📷 QR FLOW (UNCHANGED BUT CLEANED)
+// ─────────────────────────────────────────────────────────
+app.get('/qr-start', async (req, res) => {
+  try {
+    if (fs.existsSync(TEMP)) fs.rmSync(TEMP, { recursive: true, force: true });
+    fs.mkdirSync(TEMP, { recursive: true });
+
+    const { state, saveCreds } = await useMultiFileAuthState(TEMP);
+    const { version } = await fetchLatestBaileysVersion();
+
+    const sock = makeWASocket({
+      version,
+      auth: state,
+      printQRInTerminal: false,
+      logger: pino({ level: 'silent' }),
+      browser: ['Ubuntu', 'Chrome', '120.0.0'],
+      markOnlineOnConnect: false,
+      syncFullHistory: false
+    });
+
+    sock.ev.on('creds.update', saveCreds);
+
+    sock.ev.on('connection.update', async (update) => {
+      console.log('QR update:', update);
+
+      const { connection, qr } = update;
+
+      if (qr) {
+        const qrImage = await QRCode.toDataURL(qr);
+        io.emit('qr', { image: qrImage });
+      }
+
+      if (connection === 'open') {
+        io.emit('status', { message: '✅ Connected! Generating session...' });
+
+        await new Promise(r => setTimeout(r, 3000));
+
+        const session = await exportSession();
+        if (session) io.emit('session_ready', { session });
+
+        setTimeout(() => {
+          try { sock.end(); } catch (_) {}
+        }, 3000);
+      }
+    });
+
+    res.json({ success: true });
+
   } catch (err) {
     res.json({ error: err.message });
   }
 });
 
-// ─── QR Route ───────────────────────────────────────────────────────────────
-app.get('/qr', async (req, res) => {
+// ─────────────────────────────────────────────────────────
+// 🔐 EXPORT SESSION
+// ─────────────────────────────────────────────────────────
+async function exportSession() {
   try {
-    await generateQRSession();
-    res.json({ status: 'QR generation started. Check socket events.' });
+    const credsPath = path.join(TEMP, 'creds.json');
+    if (!fs.existsSync(credsPath)) return null;
+
+    const creds = fs.readFileSync(credsPath, 'utf-8');
+    return `Gifted~${Buffer.from(creds).toString('base64')}`;
+
   } catch (err) {
-    res.json({ error: err.message });
+    console.error('Export error:', err.message);
+    return null;
   }
-});
-
-// ─── Baileys session generator ──────────────────────────────────────────────
-async function generatePairingSession(phoneNumber, res) {
-  // Clean old temp session
-  if (fs.existsSync(SESSION_TEMP)) fs.rmSync(SESSION_TEMP, { recursive: true });
-  fs.mkdirSync(SESSION_TEMP, { recursive: true });
-
-  const { state, saveCreds } = await useMultiFileAuthState(SESSION_TEMP);
-  const { version } = await fetchLatestBaileysVersion();
-
-  sock = makeWASocket({
-    version,
-    auth: state,
-    printQRInTerminal: false,
-    logger: pino({ level: 'silent' }),
-    browser: ['Pakistan Jobs Bot', 'Chrome', '120.0.0']
-  });
-
-  sock.ev.on('creds.update', saveCreds);
-
-  // Request pairing code
-  await new Promise(r => setTimeout(r, 2000));
-  const code = await sock.requestPairingCode(phoneNumber);
-
-  // Format: XXXX-XXXX
-  const formatted = code.match(/.{1,4}/g).join('-');
-  io.emit('pairing_code', { code: formatted });
-
-  sock.ev.on('connection.update', async (update) => {
-    const { connection } = update;
-    if (connection === 'open') {
-      // Session connected! Generate session ID
-      await new Promise(r => setTimeout(r, 3000));
-      const sessionStr = await exportSession();
-      io.emit('session_ready', { session: sessionStr });
-      setTimeout(() => { try { sock.end(); } catch (_) {} }, 5000);
-    }
-  });
-
-  res.json({ code: formatted, message: 'Enter this code in WhatsApp > Linked Devices > Link with phone number' });
 }
 
-async function generateQRSession() {
-  if (fs.existsSync(SESSION_TEMP)) fs.rmSync(SESSION_TEMP, { recursive: true });
-  fs.mkdirSync(SESSION_TEMP, { recursive: true });
-
-  const { state, saveCreds } = await useMultiFileAuthState(SESSION_TEMP);
-  const { version } = await fetchLatestBaileysVersion();
-
-  sock = makeWASocket({
-    version,
-    auth: state,
-    printQRInTerminal: false,
+const PORT = process.env.PORT || 3001;
+server.listen(PORT, () => console.log(`🌐 Server running on ${PORT}`));    printQRInTerminal: false,
     logger: pino({ level: 'silent' }),
     browser: ['Pakistan Jobs Bot', 'Chrome', '120.0.0']
   });
