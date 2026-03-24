@@ -4,7 +4,7 @@ const { connectToWhatsApp, getSocket, getIsConnected } = require('./connection')
 const { handleMessage } = require('./commandHandler');
 const { startScraperCycle, startSenderCycle } = require('./scheduler');
 const { setupCrashHandler, sendAlertToOwners } = require('./alerts');
-const { setStat } = require('../database/db');
+const { initDb, setStat } = require('../database/db');
 
 logger.info('🇵🇰 Pakistan Jobs Bot v4.0 Starting...');
 
@@ -14,6 +14,10 @@ setupCrashHandler(getSocket);
 // Main start function
 async function start() {
   try {
+    // Init database first
+    await initDb();
+    logger.info('✅ Database ready');
+
     // Connect to WhatsApp
     await connectToWhatsApp(handleMessage);
 
