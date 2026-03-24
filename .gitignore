@@ -1,0 +1,7 @@
+node_modules/
+bot_session/
+temp_session/
+data/
+logs/
+.env
+*.log

@@ -1,0 +1,18 @@
+{
+  "name": "Pakistan Jobs Bot",
+  "description": "Auto WhatsApp bot that posts Pakistan govt, defence & private jobs every 20 minutes",
+  "keywords": ["whatsapp", "bot", "pakistan", "jobs"],
+  "env": {
+    "SESSION_ID": {
+      "description": "Your WhatsApp session ID. Get it from the companion pairing site.",
+      "required": true
+    },
+    "NODE_ENV": {
+      "description": "Set to production",
+      "value": "production"
+    }
+  },
+  "buildpacks": [
+    { "url": "heroku/nodejs" }
+  ]
+}
