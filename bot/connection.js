@@ -40,8 +40,25 @@ function loadSessionFromEnv() {
       ? sessionId.split('~')[1]
       : sessionId;
 
-    const decoded = Buffer.from(sessionData, 'base64').toString('utf-8');
-    const parsed = JSON.parse(decoded);
+    const buffer = Buffer.from(sessionData, 'base64');
+
+    let parsed;
+
+    // Try plain JSON first
+    try {
+      parsed = JSON.parse(buffer.toString('utf-8'));
+    } catch (_) {
+      // Try gzip decompression (some session generators gzip the data)
+      const zlib = require('zlib');
+      try {
+        const decompressed = zlib.gunzipSync(buffer).toString('utf-8');
+        parsed = JSON.parse(decompressed);
+      } catch (_2) {
+        // Try deflate
+        const decompressed = zlib.inflateRawSync(buffer).toString('utf-8');
+        parsed = JSON.parse(decompressed);
+      }
+    }
 
     // Write creds.json
     fs.writeFileSync(
