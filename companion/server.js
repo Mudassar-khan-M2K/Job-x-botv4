@@ -10,28 +10,29 @@ const app = express();
 const TEMP = path.join(__dirname, 'temp_session');
 if (!fs.existsSync(TEMP)) fs.mkdirSync(TEMP, { recursive: true });
 
-app.get('/', async (req, res) => {
+app.get('/', (req, res) => {
   res.send(`
-    <h1>🇵🇰 JobX Bot - QR Pairing</h1>
-    <p>Scan QR with WhatsApp → Linked Devices → Link a Device</p>
-    <div id="qr"></div>
-    <p id="status">Generating QR Code...</p>
+    <h1>🇵🇰 JobX Bot - Scan QR</h1>
+    <p>Scan with WhatsApp → Linked Devices → Link a Device</p>
+    <div id="qr" style="margin:20px 0"></div>
+    <p id="status">Loading QR Code...</p>
+
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script>
       const socket = io();
       socket.on('qr', (data) => {
         document.getElementById('qr').innerHTML = `<img src="${data.image}" width="280">`;
-        document.getElementById('status').innerHTML = '✅ Scan with WhatsApp';
+        document.getElementById('status').innerHTML = '✅ Scan now with WhatsApp';
       });
-      socket.on('session', (session) => {
-        document.getElementById('status').innerHTML = '<b style="color:green">✅ Session Ready!</b><br>Check Heroku logs for SESSION_ID';
+      socket.on('ready', () => {
+        document.getElementById('status').innerHTML = '<b style="color:green">✅ Success! Check Heroku logs for SESSION_ID</b>';
       });
     </script>
   `);
 });
 
 app.get('/start', async (req, res) => {
-  res.send('Starting QR... check logs');
+  res.send('Starting... Open logs');
 
   try {
     const { state, saveCreds } = await useMultiFileAuthState(TEMP);
@@ -50,16 +51,16 @@ app.get('/start', async (req, res) => {
     sock.ev.on('connection.update', async (update) => {
       if (update.qr) {
         const image = await QRCode.toDataURL(update.qr);
-        console.log("✅ QR Generated - Scan now");
+        console.log("✅ QR Code Ready");
       }
 
       if (update.connection === 'open') {
-        console.log("✅ WhatsApp Connected Successfully!");
+        console.log("✅ Connected!");
 
         const session = `Gifted~${Buffer.from(JSON.stringify(state.creds)).toString('base64')}`;
-        console.log("\n🔥 YOUR SESSION_ID (copy this):\n" + session + "\n");
+        console.log("\n🔥 COPY THIS SESSION_ID:\n" + session + "\n");
 
-        setTimeout(() => process.exit(0), 3000);
+        setTimeout(() => process.exit(0), 2000);
       }
     });
 
@@ -69,4 +70,4 @@ app.get('/start', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`✅ QR Pairing site running on port ${PORT}`));
+app.listen(PORT, () => console.log(`✅ QR Pairing site live on port ${PORT}`));
