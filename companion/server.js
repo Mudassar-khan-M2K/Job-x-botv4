@@ -13,26 +13,26 @@ if (!fs.existsSync(TEMP)) fs.mkdirSync(TEMP, { recursive: true });
 app.get('/', (req, res) => {
   res.send(`
     <h1>🇵🇰 JobX Bot - Scan QR</h1>
-    <p>Scan with WhatsApp → Linked Devices → Link a Device</p>
-    <div id="qr" style="margin:20px 0"></div>
+    <p>Scan with WhatsApp → Linked Devices</p>
+    <div id="qr"></div>
     <p id="status">Loading QR Code...</p>
 
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script>
       const socket = io();
       socket.on('qr', (data) => {
-        document.getElementById('qr').innerHTML = `<img src="${data.image}" width="280">`;
-        document.getElementById('status').innerHTML = '✅ Scan now with WhatsApp';
+        document.getElementById('qr').innerHTML = '<img src="' + data.image + '" width="280">';
+        document.getElementById('status').innerHTML = '✅ Scan now';
       });
       socket.on('ready', () => {
-        document.getElementById('status').innerHTML = '<b style="color:green">✅ Success! Check Heroku logs for SESSION_ID</b>';
+        document.getElementById('status').innerHTML = '<b style="color:green">✅ Success! Check logs for SESSION_ID</b>';
       });
     </script>
   `);
 });
 
 app.get('/start', async (req, res) => {
-  res.send('Starting... Open logs');
+  res.send('Starting QR... check logs');
 
   try {
     const { state, saveCreds } = await useMultiFileAuthState(TEMP);
@@ -51,14 +51,14 @@ app.get('/start', async (req, res) => {
     sock.ev.on('connection.update', async (update) => {
       if (update.qr) {
         const image = await QRCode.toDataURL(update.qr);
-        console.log("✅ QR Code Ready");
+        console.log("✅ QR Generated");
       }
 
       if (update.connection === 'open') {
         console.log("✅ Connected!");
 
         const session = `Gifted~${Buffer.from(JSON.stringify(state.creds)).toString('base64')}`;
-        console.log("\n🔥 COPY THIS SESSION_ID:\n" + session + "\n");
+        console.log("\n🔥 YOUR SESSION_ID (copy this):\n" + session + "\n");
 
         setTimeout(() => process.exit(0), 2000);
       }
