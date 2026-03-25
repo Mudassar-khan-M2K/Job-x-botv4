@@ -56,7 +56,6 @@ async function jobsCmd(sock, msg, type, filter) {
     return;
   }
 
-  // Send max 5 jobs to avoid spam
   const toSend = jobs.slice(0, 5);
 
   await sock.sendMessage(chatJid, {
@@ -65,7 +64,6 @@ async function jobsCmd(sock, msg, type, filter) {
 
   for (const job of toSend) {
     await sock.sendMessage(chatJid, { text: formatJob(job) });
-    // Small delay between messages
     await new Promise(r => setTimeout(r, 500));
   }
 
@@ -76,5 +74,4 @@ async function jobsCmd(sock, msg, type, filter) {
   }
 }
 
-module.exports = jobsCmd;
-module.exports.formatJob = formatJob;
+module.exports = { jobsCmd, formatJob };
