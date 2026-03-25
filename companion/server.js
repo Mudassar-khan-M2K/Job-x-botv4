@@ -1,33 +1,37 @@
 require('dotenv').config();
 const express = require('express');
 const { default: makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, Browsers } = require('@whiskeysockets/baileys');
+const QRCode = require('qrcode');
 const pino = require('pino');
 const fs = require('fs');
 const path = require('path');
 
 const app = express();
-app.use(express.urlencoded({ extended: true }));
-
 const TEMP = path.join(__dirname, 'temp_session');
 if (!fs.existsSync(TEMP)) fs.mkdirSync(TEMP, { recursive: true });
 
-app.get('/', (req, res) => {
+app.get('/', async (req, res) => {
   res.send(`
-    <h1>JobX Pairing</h1>
-    <form action="/pair" method="POST">
-      <input name="phone" placeholder="923477262704" style="padding:12px;width:280px" />
-      <button type="submit" style="padding:12px">Get Pairing Code</button>
-    </form>
-    <p>After submit, check Heroku logs for code + SESSION_ID</p>
+    <h1>🇵🇰 JobX Bot - QR Pairing</h1>
+    <p>Scan QR with WhatsApp → Linked Devices → Link a Device</p>
+    <div id="qr"></div>
+    <p id="status">Generating QR Code...</p>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script>
+      const socket = io();
+      socket.on('qr', (data) => {
+        document.getElementById('qr').innerHTML = `<img src="${data.image}" width="280">`;
+        document.getElementById('status').innerHTML = '✅ Scan with WhatsApp';
+      });
+      socket.on('session', (session) => {
+        document.getElementById('status').innerHTML = '<b style="color:green">✅ Session Ready!</b><br>Check Heroku logs for SESSION_ID';
+      });
+    </script>
   `);
 });
 
-app.post('/pair', async (req, res) => {
-  let phone = (req.body.phone || '').replace(/[^0-9]/g, '');
-  if (phone.startsWith('0')) phone = '92' + phone.slice(1);
-  if (!phone.startsWith('92')) phone = '92' + phone;
-
-  res.send(`Connecting to WhatsApp for ${phone}... Check logs now`);
+app.get('/start', async (req, res) => {
+  res.send('Starting QR... check logs');
 
   try {
     const { state, saveCreds } = await useMultiFileAuthState(TEMP);
@@ -43,28 +47,21 @@ app.post('/pair', async (req, res) => {
 
     sock.ev.on('creds.update', saveCreds);
 
-    sock.ev.on('connection.update', (update) => {
-      if (update.qr) console.log("QR ready (ignore)");
+    sock.ev.on('connection.update', async (update) => {
+      if (update.qr) {
+        const image = await QRCode.toDataURL(update.qr);
+        console.log("✅ QR Generated - Scan now");
+      }
 
       if (update.connection === 'open') {
-        console.log("✅ Connected successfully!");
+        console.log("✅ WhatsApp Connected Successfully!");
 
         const session = `Gifted~${Buffer.from(JSON.stringify(state.creds)).toString('base64')}`;
-        console.log("\n🔥 COPY THIS SESSION_ID:\n" + session + "\n");
+        console.log("\n🔥 YOUR SESSION_ID (copy this):\n" + session + "\n");
 
-        setTimeout(() => process.exit(0), 2000);
+        setTimeout(() => process.exit(0), 3000);
       }
     });
-
-    // Request pairing code
-    setTimeout(async () => {
-      try {
-        const code = await sock.requestPairingCode(phone);
-        console.log(`\n🔥 PAIRING CODE: ${code.match(/.{1,4}/g).join('-')}\n`);
-      } catch (e) {
-        console.log("Pairing code error:", e.message);
-      }
-    }, 3000);
 
   } catch (e) {
     console.error(e);
@@ -72,4 +69,4 @@ app.post('/pair', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`✅ Pairing site live on port ${PORT}`));
+app.listen(PORT, () => console.log(`✅ QR Pairing site running on port ${PORT}`));
