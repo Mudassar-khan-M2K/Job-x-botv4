@@ -24,7 +24,6 @@ async function initDb() {
     db = new SQL.Database();
   }
 
-  // Create tables
   db.run(`
     CREATE TABLE IF NOT EXISTS jobs (
       id TEXT PRIMARY KEY,
@@ -47,20 +46,17 @@ async function initDb() {
   db.run(`CREATE TABLE IF NOT EXISTS error_logs (id INTEGER PRIMARY KEY, type TEXT, source TEXT, error TEXT, timestamp INTEGER)`);
 
   saveDb();
-
-  // Start auto-save AFTER db ready
   setInterval(saveDb, 60000);
 
   return db;
 }
 
-// Helper functions
 function query(sql, params = []) {
   if (!db) throw new Error('DB not initialized');
   const stmt = db.prepare(sql);
-  const result = stmt.all(...params);
+  const result = stmt.all ? stmt.all(...params) : stmt.get(...params) || [];  // fixed for sql.js
   stmt.free();
-  return result;
+  return Array.isArray(result) ? result : [result].filter(Boolean);
 }
 
 function run(sql, params = []) {
@@ -94,7 +90,7 @@ function markJobSent(id) {
 }
 
 function getJobsByCategory(cat) {
-  return query('SELECT * FROM jobs WHERE category = ? AND sent = 0 ORDER BY posted_at DESC', [cat]);
+  return query('SELECT * FROM jobs WHERE category = ? ORDER BY posted_at DESC', [cat]);
 }
 
 function getJobsBySource(src) {
@@ -107,10 +103,6 @@ function getJobsByEducation(edu) {
 
 function getAllRecentJobs() {
   return query('SELECT * FROM jobs ORDER BY posted_at DESC LIMIT 50');
-}
-
-function cleanOldJobs() {
-  run('DELETE FROM jobs WHERE posted_at < ?', [Date.now() - 7 * 24 * 60 * 60 * 1000]);
 }
 
 function getStat(key) {
@@ -129,8 +121,8 @@ function incrementStat(key) {
 
 function getDashboardStats() {
   return {
-    totalJobs: query('SELECT COUNT(*) as c FROM jobs')[0].c,
-    unsentJobs: query('SELECT COUNT(*) as c FROM jobs WHERE sent = 0')[0].c,
+    totalJobs: query('SELECT COUNT(*) as c FROM jobs')[0]?.c || 0,
+    unsentJobs: query('SELECT COUNT(*) as c FROM jobs WHERE sent = 0')[0]?.c || 0,
     sentToday: getStat('total_sent'),
     lastScrape: new Date().toISOString()
   };
@@ -142,7 +134,7 @@ function logCommand(cmd, user) {
 
 function logError(type, source, error) {
   run('INSERT INTO error_logs (type, source, error, timestamp) VALUES (?, ?, ?, ?)', 
-      [type, source, error.message || error, Date.now()]);
+      [type, source, error.message || String(error), Date.now()]);
 }
 
 module.exports = {
@@ -155,7 +147,6 @@ module.exports = {
   getJobsBySource,
   getJobsByEducation,
   getAllRecentJobs,
-  cleanOldJobs,
   getStat,
   setStat,
   incrementStat,
