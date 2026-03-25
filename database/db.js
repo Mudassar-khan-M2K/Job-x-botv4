@@ -104,6 +104,9 @@ function getJobsByEducation(edu) {
 function getAllRecentJobs() {
   return query('SELECT * FROM jobs ORDER BY posted_at DESC LIMIT 50');
 }
+function cleanOldJobs() {
+  run('DELETE FROM jobs WHERE posted_at < ?', [Date.now() - 7 * 24 * 60 * 60 * 1000]);
+}
 
 function getStat(key) {
   const rows = query('SELECT value FROM stats WHERE key = ?', [key]);
@@ -147,6 +150,7 @@ module.exports = {
   getJobsBySource,
   getJobsByEducation,
   getAllRecentJobs,
+  cleanOldJobs,
   getStat,
   setStat,
   incrementStat,
